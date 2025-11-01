@@ -1,0 +1,1 @@
+python infer.py --encoder vitl --model-path cdm_d435.ckpt --rgb-image example_data/color_12.png --depth-image example_data/depth_12.png --output result.png
