@@ -291,7 +291,7 @@ class RGBDDepth(nn.Module):
                     width=input_size,
                     height=input_size,
                     resize_target=True,
-                    keep_aspect_ratio=True,
+                    keep_aspect_ratio=False,
                     ensure_multiple_of=14,
                     resize_method="lower_bound",
                     image_interpolation_method=cv2.INTER_CUBIC,

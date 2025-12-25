@@ -182,10 +182,8 @@ def benchmark_inference(model,
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Depth Anything V2')
-    parser.add_argument('--dataset', type=str, default='PhoCAL', choices=['HAMMER', 'HouseCat6D', 'PhoCAL', 'TransCG', 'XYZ-IBD', 'YCB-V', 'T-LESS', 'GN-Trans', 'ROBI'])
-    parser.add_argument('--dataset_root', type=str, default='/data/robotarm/dataset')
-    parser.add_argument('--split', type=str, default='/home/robotarm/object_depth_percetion/dataset/splits/PhoCAL_test.txt', help='Path to split file listing RGB images')
-    parser.add_argument('--output_root', type=str, default='/data/robotarm/result/depth/mixed')
+    parser.add_argument('--input-root',type=str, default='/home/robotarm/object_depth_percetion/data/in-wild/12.3.2025')
+    parser.add_argument('--output-root', type=str, default='/home/robotarm/object_depth_percetion/vis_in_wild')
     parser.add_argument('--method', type=str, default='cdm_zs')
     parser.add_argument(
         "--encoder",
@@ -194,7 +192,7 @@ if __name__ == '__main__':
         default="vitl",
         help="Model encoder type",
     )
-    parser.add_argument('--model-path', type=str, required=True)
+    parser.add_argument('--model-path', type=str, default='cdm_d435.ckpt')
     parser.add_argument('--input-size', type=int, default=518)
     parser.add_argument('--min-depth', type=float, default=0.001)
     parser.add_argument('--max-depth', type=float, default=5)
@@ -209,65 +207,27 @@ if __name__ == '__main__':
     model = load_model(args.encoder, args.model_path)
 
     # ===== 读取 split 文件中的 rgb 路径 =====
-    with open(args.split, 'r') as f:
-        rgb_lines = [line.strip().split()[0] for line in f if line.strip()]
+    color_paths = sorted(
+        glob.glob(os.path.join(args.input_root, "color_*.png"))
+    )
+    print(f"Found {len(color_paths)} color images in {args.input_root}")
+    
+    save_root = os.path.join(args.output_root, args.method, args.encoder)
+    os.makedirs(save_root, exist_ok=True)
 
-    for rgb_rel_path in tqdm(rgb_lines):
-        rgb_path = os.path.join(args.dataset_root, args.dataset, rgb_rel_path)
-        depth_scale = 1.0
-
-        # 推导出 raw depth 路径
-        if args.dataset == 'HAMMER':
-            scene_name = rgb_rel_path.split('/')[0]
-            frame_id = int(os.path.splitext(os.path.basename(rgb_rel_path))[0])
-            depth_path = os.path.join(args.dataset_root, args.dataset, scene_name, 'polarization', f'depth_{args.camera}', f'{frame_id:06d}.png')
-        elif args.dataset == 'HouseCat6D':
-            scene_name = rgb_rel_path.split('/')[0]
-            frame_id = int(os.path.splitext(os.path.basename(rgb_rel_path))[0])
-            depth_path = os.path.join(args.dataset_root, args.dataset, scene_name, 'depth', f'{frame_id:06d}.png')
-        elif args.dataset == 'PhoCAL':
-            scene_name = rgb_rel_path.split('/')[0]
-            frame_id = int(os.path.splitext(os.path.basename(rgb_rel_path))[0])
-            depth_path = os.path.join(args.dataset_root, args.dataset, scene_name, 'depth', f'{frame_id:06d}.png')
-        elif args.dataset == 'TransCG':
-            scene_name = rgb_rel_path.split('/')[1]
-            frame_id = int(rgb_rel_path.split('/')[-2])
-            if args.camera == 'd435':
-                depth_path = os.path.join(args.dataset_root, args.dataset, 'scenes', scene_name, f'{frame_id}', 'depth1.png')
-            elif args.camera == 'l515':
-                depth_path = os.path.join(args.dataset_root, args.dataset, 'scenes', scene_name, f'{frame_id}', 'depth2.png')                
-        elif args.dataset == 'XYZ-IBD':
-            depth_scale = 0.09999999747378752
-            scene_name = rgb_rel_path.split('/')[1]
-            frame_id = int(os.path.splitext(os.path.basename(rgb_rel_path))[0])
-            depth_path = os.path.join(args.dataset_root, args.dataset, 'val', scene_name, 'depth_xyz', f'{frame_id:06d}.png')
-        elif args.dataset == 'GN-Trans':
-            scene_name = rgb_rel_path.split('/')[1]
-            frame_id = int(rgb_rel_path.split('/')[-1].split('_')[0])
-            depth_path = os.path.join(args.dataset_root, args.dataset, 'scenes', scene_name, f'{frame_id:04d}_depth_sim.png')
-        elif args.dataset == 'YCB-V':
-            depth_scale = 0.1
-            scene_name = rgb_rel_path.split('/')[1]
-            frame_id = int(os.path.splitext(os.path.basename(rgb_rel_path))[0])
-            depth_path = os.path.join(args.dataset_root, args.dataset, 'test', scene_name, 'depth', f'{frame_id:06d}.png')
-        elif args.dataset == 'T-LESS':
-            depth_scale = 0.1
-            scene_name = rgb_rel_path.split('/')[1]
-            frame_id = int(os.path.splitext(os.path.basename(rgb_rel_path))[0])
-            depth_path = os.path.join(args.dataset_root, args.dataset, 'test_primesense', scene_name, 'depth', f'{frame_id:06d}.png')
-        elif args.dataset == 'ROBI':
-            depth_scale = 0.03125
-            scene_name = rgb_rel_path.split('/')[1] + '_' + rgb_rel_path.split('/')[2]
-            frame_id = int(os.path.splitext(os.path.basename(rgb_rel_path))[0].split('_')[-1])
-            depth_path = os.path.join(args.dataset_root, args.dataset, rgb_rel_path.replace("Stereo", "Depth").replace('LEFT_', 'DEPTH_').replace('.bmp', '.png'))
-            
-        if not os.path.exists(depth_path):
-            print(f'[Warning] Raw depth not found: {depth_path}, skipping')
+    for rgb_path in tqdm(color_paths):
+        name = os.path.basename(rgb_path)  # color_xxx.png
+        scene_name = rgb_path.split("/")[-2]
+        idx = name.replace("color_", "").replace(".png", "")
+        depth_path = os.path.join(args.input_root, f"depth_{idx}.png")
+        
+        if not os.path.isfile(depth_path):
+            print(f"[WARN] depth file not found for {name}, skip.")
             continue
 
         # Load and preprocess input images
         rgb_src, depth_low_res, simi_depth_low_res = load_images(
-            rgb_path, depth_path, depth_factor/depth_scale, args.max_depth
+            rgb_path, depth_path, depth_factor, args.max_depth
         )
 
         # Run model inference
@@ -281,11 +241,7 @@ if __name__ == '__main__':
         # Convert from inverse depth back to regular depth
         pred_depth = 1 / pred_depth
 
-        if args.dataset in ['HAMMER', 'TransCG']:
-            save_dir = os.path.join(args.output_root, args.dataset, args.camera, args.method, args.encoder, scene_name)
-        else:
-            save_dir = os.path.join(args.output_root, args.dataset, args.method, args.encoder, scene_name)
-        os.makedirs(save_dir, exist_ok=True)
-
+        out_path = os.path.join(save_root, f"{scene_name}_{idx}_depth.png")
+        
         metric_depth = (pred_depth * depth_factor).astype(np.uint16)
-        cv2.imwrite(os.path.join(save_dir, f'{frame_id:06d}_depth.png'), metric_depth)
+        cv2.imwrite(out_path, metric_depth)
